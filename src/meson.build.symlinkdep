@@ -1,0 +1,7 @@
+datachannel_files = files(
+  'conn.cpp',
+  'net/packet-parser.cpp',
+  'net/callbacks.cpp',
+)
+
+datachannel_deps = [dependency('coop'), dependency('libjuice')]
