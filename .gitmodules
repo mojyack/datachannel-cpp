@@ -1,9 +1,0 @@
-[submodule "submodules/netprotocol"]
-	path = submodules/netprotocol
-	url = https://github.com/mojyack/netprotocol.git
-[submodule "submodules/cutil"]
-	path = submodules/cutil
-	url = https://github.com/mojyack/cutil.git
-[submodule "submodules/cutil-macros"]
-	path = submodules/cutil-macros
-	url = https://github.com/mojyack/cutil-macros.git
