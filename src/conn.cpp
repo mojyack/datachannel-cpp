@@ -107,7 +107,7 @@ auto Connection::connect(Params params) -> coop::Async<bool> {
         co_unwrap_v_mut(request, (serde::load<net::BinaryFormat, SessionDescription>(payload)));
         remote_desc = std::move(request.desc);
         session_desc_set.notify();
-        co_ensure_v(co_await parser.send_header(Success::pt, 0, header.id));
+        co_ensure_v(co_await parser.send_packet(Success(), header.id));
         parser.callbacks.by_type.erase(SessionDescription::pt); // oneshot
         co_return true;
     };
@@ -121,7 +121,7 @@ auto Connection::connect(Params params) -> coop::Async<bool> {
     parser.callbacks.by_type[GatheringDone::pt] = [this, &remote_gathering_done](net::Header header, net::BytesRef /*payload*/) -> coop::Async<bool> {
         constexpr auto error_value = false;
         remote_gathering_done.notify();
-        co_ensure_v(co_await parser.send_header(Success::pt, 0, header.id));
+        co_ensure_v(co_await parser.send_packet(Success(), header.id));
         parser.callbacks.by_type.erase(SessionDescription::pt); // oneshot
         co_return true;
     };
