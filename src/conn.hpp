@@ -1,5 +1,4 @@
 #pragma once
-#include <coop/task-injector.hpp>
 #include <coop/thread-event.hpp>
 #include <juice/juice.h>
 
@@ -21,15 +20,13 @@ enum class SendResult {
     UnknownError,
 };
 
+struct RemoteEvents;
+
 struct Connection {
     // private
-    net::PacketParser   parser;
-    coop::TaskInjector* injector;
-    AutoJuiceAgent      agent;
-    coop::ThreadEvent   connected;
-    std::thread::id     main_thread_id;
-
-    auto is_main_thread() const -> bool;
+    net::PacketParser parser;
+    AutoJuiceAgent    agent;
+    RemoteEvents*     remote_events = nullptr;
 
     // callbacks
     // be careful that these callbacks are called from another thread
@@ -41,7 +38,6 @@ struct Connection {
 
     struct Params {
         std::span<juice_turn_server_t>     turns = {};
-        coop::TaskInjector*                injector;
         std::function<coop::Async<bool>()> start_backend;
         const char*                        stun_addr;
         uint16_t                           stun_port;

@@ -4,10 +4,39 @@
 #include "macros/coop-assert.hpp"
 #include "macros/logger.hpp"
 #include "macros/unwrap.hpp"
+#include "util/critical.hpp"
+#include "util/variant.hpp"
 
 namespace p2p {
+struct CandidateEvent {
+    std::string desc;
+};
+
+struct ConnectedEvent {
+};
+
+struct GatheringDoneEvent {
+};
+
+using RemoteEvent = Variant<CandidateEvent, ConnectedEvent, GatheringDoneEvent>;
+
+struct RemoteEvents {
+    coop::ThreadEvent                  updated;
+    Critical<std::vector<RemoteEvent>> queue;
+};
+
 namespace {
 auto logger = Logger("p2p");
+
+template <class T>
+auto push_event(Connection& self, T data) -> void {
+    unwrap_mut(events, self.remote_events);
+    {
+        auto [lock, queue] = events.queue.access();
+        queue.emplace_back(RemoteEvent::create<T>(std::move(data)));
+    }
+    events.updated.notify();
+}
 
 auto on_state_changed(juice_agent_t* const /*agent*/, const juice_state_t state, void* const user_ptr) -> void {
     LOG_DEBUG(logger, "state changed to {}", juice_state_to_string(state));
@@ -15,7 +44,7 @@ auto on_state_changed(juice_agent_t* const /*agent*/, const juice_state_t state,
     auto& self = *std::bit_cast<Connection*>(user_ptr);
     switch(state) {
     case JUICE_STATE_COMPLETED:
-        self.connected.notify();
+        push_event(self, ConnectedEvent());
         break;
     case JUICE_STATE_FAILED:
         self.on_disconnected();
@@ -26,25 +55,13 @@ auto on_state_changed(juice_agent_t* const /*agent*/, const juice_state_t state,
 }
 
 auto on_candidate(juice_agent_t* const /*agent*/, const char* const desc, void* const user_ptr) -> void {
-    auto& self   = *std::bit_cast<Connection*>(user_ptr);
-    auto& runner = *self.injector->runner;
-    auto  task   = [&self, desc] -> coop::Async<bool> {
-        return self.parser.send_packet(Candidate{desc});
-    };
-    if(!(self.is_main_thread() ? runner.await(task()) : self.injector->inject_task(task()))) {
-        self.on_disconnected();
-    }
+    auto& self = *std::bit_cast<Connection*>(user_ptr);
+    push_event(self, CandidateEvent(desc));
 }
 
 auto on_gathering_done(juice_agent_t* const /*agent*/, void* const user_ptr) -> void {
-    auto& self   = *std::bit_cast<Connection*>(user_ptr);
-    auto& runner = *self.injector->runner;
-    auto  task   = [&self] -> coop::Async<bool> {
-        return self.parser.receive_response<Success>(GatheringDone());
-    };
-    if(!(self.is_main_thread() ? runner.await(task()) : self.injector->inject_task(task()))) {
-        self.on_disconnected();
-    }
+    auto& self = *std::bit_cast<Connection*>(user_ptr);
+    push_event(self, GatheringDoneEvent());
 }
 
 auto on_recv(juice_agent_t* const /*agent*/, const char* const data, const size_t size, void* const user_ptr) -> void {
@@ -52,10 +69,6 @@ auto on_recv(juice_agent_t* const /*agent*/, const char* const data, const size_
     self.on_received({(std::byte*)data, size});
 }
 } // namespace
-
-auto Connection::is_main_thread() const -> bool {
-    return main_thread_id == std::this_thread::get_id();
-}
 
 auto Connection::push_signaling_data(net::BytesRef data) -> coop::Async<bool> {
     if(const auto p = parser.parse_received(data)) {
@@ -97,8 +110,6 @@ auto Connection::connect(Params params) -> coop::Async<bool> {
         config.turn_servers_count = params.turns.size();
     }
     agent.reset(juice_create(&config));
-    injector       = params.injector;
-    main_thread_id = std::this_thread::get_id();
 
     auto remote_desc                                 = std::string();
     auto session_desc_set                            = coop::SingleEvent();
@@ -148,13 +159,35 @@ auto Connection::connect(Params params) -> coop::Async<bool> {
         coop_ensure(juice_set_remote_description(agent.get(), remote_desc.data()) == JUICE_ERR_SUCCESS);
     }
 
+    auto events   = std::unique_ptr<RemoteEvents>(new RemoteEvents());
+    remote_events = events.get();
     coop_ensure(juice_gather_candidates(agent.get()) == JUICE_ERR_SUCCESS);
+    auto connected = false;
+    while(!connected) {
+        co_await events->updated;
+        auto queue = std::exchange(events->queue.access().second, {});
+        for(auto& event : queue) {
+            switch(event.get_index()) {
+            case RemoteEvent::index_of<CandidateEvent>:
+                coop_ensure(co_await parser.send_packet(Candidate{std::move(event.as<CandidateEvent>().desc)}));
+                break;
+            case RemoteEvent::index_of<ConnectedEvent>:
+                connected = true;
+                break;
+            case RemoteEvent::index_of<GatheringDoneEvent>:
+                coop_ensure(co_await parser.receive_response<Success>(GatheringDone()));
+                break;
+            }
+        }
+    }
+    remote_events = nullptr;
+
     if(!ignore_gathering_done) {
         co_await remote_gathering_done;
     } else {
         parser.callbacks.by_type.erase(GatheringDone::pt);
     }
-    co_await connected;
+
     co_return true;
 }
 } // namespace p2p

@@ -1,3 +1,4 @@
+#include <coop/task-handle.hpp>
 #include <coop/timer.hpp>
 
 #include "macros/coop-assert.hpp"
@@ -6,8 +7,7 @@
 #include "util/span.hpp"
 
 namespace {
-auto runner   = coop::Runner();
-auto injector = coop::TaskInjector(runner);
+auto runner = coop::Runner();
 
 struct Peer {
     p2p::Connection       conn;
@@ -37,7 +37,6 @@ auto test() -> coop::Async<void> {
     auto p1_started = coop::SingleEvent();
     runner.push_task(
         p1.conn.connect({
-            .injector      = &injector,
             .start_backend = [&p1, &p1_started] -> coop::Async<bool> {
                 p1_started.notify();
                 return p1.backend.connect();
@@ -49,7 +48,6 @@ auto test() -> coop::Async<void> {
         &p1_task);
     co_await p1_started;
     coop_ensure(co_await p2.conn.connect({
-        .injector      = &injector,
         .start_backend = [&p1, &p2] -> coop::Async<bool> { return p2.backend.connect(p1.backend); },
         .stun_addr     = "stun.l.google.com",
         .stun_port     = 19302,
@@ -79,7 +77,6 @@ auto test() -> coop::Async<void> {
     p2.conn.agent.reset();
     PRINT("==== note: this step takes a while ====");
     coop_ensure(co_await event == 1);
-    injector.blocker.stop();
 
     pass = true;
 }
