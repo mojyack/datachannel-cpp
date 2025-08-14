@@ -33,7 +33,7 @@ struct Connection {
     std::function<void(net::BytesRef)> on_received     = [](net::BytesRef) {};
     std::function<void()>              on_disconnected = [] {};
 
-    auto push_signaling_data(net::BytesRef data) -> coop::Async<bool>;
+    auto push_signaling_data(PrependableBuffer buffer) -> coop::Async<bool>;
     auto send_data(net::BytesRef data) -> SendResult;
 
     struct Params {

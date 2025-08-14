@@ -20,17 +20,17 @@ auto test() -> coop::Async<void> {
     auto p1 = Peer();
     auto p2 = Peer();
 
-    p1.conn.parser.send_data = [&p1](net::BytesRef data) {
-        return p1.backend.send(data);
+    p1.conn.parser.send_data = [&p1](PrependableBuffer buffer) {
+        return p1.backend.send(std::move(buffer));
     };
-    p1.backend.on_received = [&p1](net::BytesRef data) -> coop::Async<void> {
-        co_await p1.conn.push_signaling_data(data);
+    p1.backend.on_received = [&p1](PrependableBuffer buffer) -> coop::Async<void> {
+        co_await p1.conn.push_signaling_data(std::move(buffer));
     };
-    p2.conn.parser.send_data = [&p2](net::BytesRef data) {
-        return p2.backend.send(data);
+    p2.conn.parser.send_data = [&p2](PrependableBuffer buffer) {
+        return p2.backend.send(std::move(buffer));
     };
-    p2.backend.on_received = [&p2](net::BytesRef data) -> coop::Async<void> {
-        co_await p2.conn.push_signaling_data(data);
+    p2.backend.on_received = [&p2](PrependableBuffer buffer) -> coop::Async<void> {
+        co_await p2.conn.push_signaling_data(std::move(buffer));
     };
 
     auto p1_task    = coop::TaskHandle();

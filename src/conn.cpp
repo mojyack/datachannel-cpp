@@ -1,7 +1,7 @@
 #include <coop/thread.hpp>
 
 #include "conn.hpp"
-#include "macros/coop-assert.hpp"
+#include "macros/coop-unwrap.hpp"
 #include "macros/logger.hpp"
 #include "macros/unwrap.hpp"
 #include "util/critical.hpp"
@@ -70,11 +70,11 @@ auto on_recv(juice_agent_t* const /*agent*/, const char* const data, const size_
 }
 } // namespace
 
-auto Connection::push_signaling_data(net::BytesRef data) -> coop::Async<bool> {
-    if(const auto p = parser.parse_received(data)) {
-        if(!co_await parser.callbacks.invoke(p->header, p->payload) && p->header.id != Error::pt) {
-            coop_ensure(co_await parser.send_packet(Error::pt, 0, p->header.id));
-        }
+auto Connection::push_signaling_data(PrependableBuffer buffer) -> coop::Async<bool> {
+    coop_unwrap(parsed, net::split_header(buffer.body()));
+    const auto [header, _] = parsed;
+    if(!co_await parser.callbacks.invoke(header, std::move(buffer)) && header.id != Error::pt) {
+        coop_ensure(co_await parser.send_packet(Error{}, header.id));
     }
     co_return true;
 }
@@ -113,23 +113,23 @@ auto Connection::connect(Params params) -> coop::Async<bool> {
 
     auto remote_desc                                 = std::string();
     auto session_desc_set                            = coop::SingleEvent();
-    parser.callbacks.by_type[SessionDescription::pt] = [this, &remote_desc, &session_desc_set](net::Header header, net::BytesRef payload) -> coop::Async<bool> {
+    parser.callbacks.by_type[SessionDescription::pt] = [this, &remote_desc, &session_desc_set](net::Header header, PrependableBuffer buffer) -> coop::Async<bool> {
         constexpr auto error_value = false;
-        co_unwrap_v_mut(request, (serde::load<net::BinaryFormat, SessionDescription>(payload)));
+        co_unwrap_v_mut(request, (serde::load<net::BinaryFormat, SessionDescription>(buffer.body())));
         remote_desc = std::move(request.desc);
         session_desc_set.notify();
         co_ensure_v(co_await parser.send_packet(Success(), header.id));
         parser.callbacks.by_type.erase(SessionDescription::pt); // oneshot
         co_return true;
     };
-    parser.callbacks.by_type[Candidate::pt] = [this](net::Header /*header*/, net::BytesRef payload) -> coop::Async<bool> {
+    parser.callbacks.by_type[Candidate::pt] = [this](net::Header /*header*/, PrependableBuffer buffer) -> coop::Async<bool> {
         constexpr auto error_value = false;
-        co_unwrap_v_mut(request, (serde::load<net::BinaryFormat, Candidate>(payload)));
+        co_unwrap_v_mut(request, (serde::load<net::BinaryFormat, Candidate>(buffer.body())));
         co_ensure_v(juice_add_remote_candidate(agent.get(), request.desc.data()) == JUICE_ERR_SUCCESS);
         co_return true;
     };
     auto remote_gathering_done                  = coop::SingleEvent();
-    parser.callbacks.by_type[GatheringDone::pt] = [this, &remote_gathering_done](net::Header header, net::BytesRef /*payload*/) -> coop::Async<bool> {
+    parser.callbacks.by_type[GatheringDone::pt] = [this, &remote_gathering_done](net::Header header, PrependableBuffer /*buffer*/) -> coop::Async<bool> {
         constexpr auto error_value = false;
         remote_gathering_done.notify();
         co_ensure_v(co_await parser.send_packet(Success(), header.id));
