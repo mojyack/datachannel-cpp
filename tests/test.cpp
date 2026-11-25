@@ -56,17 +56,17 @@ auto test() -> coop::Async<void> {
     co_await p1_task.join();
 
     auto event          = coop::ThreadEvent();
-    p1.conn.on_received = [&event](net::BytesRef data) -> void {
-        PRINT("p1 received data: {}", from_span(data));
+    p1.conn.on_received = [&event](BytesSpan data) -> void {
+        PRINT("p1 received data: {}", span_as_str(data));
         event.notify();
     };
-    p2.conn.on_received = [&event](net::BytesRef data) -> void {
-        PRINT("p2 received data: {}", from_span(data));
+    p2.conn.on_received = [&event](BytesSpan data) -> void {
+        PRINT("p2 received data: {}", span_as_str(data));
         event.notify();
     };
-    coop_ensure(p1.conn.send_data(to_span("hello p2")) == p2p::SendResult::Success);
+    coop_ensure(p1.conn.send_data(str_as_span("hello p2")) == p2p::SendResult::Success);
     coop_ensure(co_await event == 1);
-    coop_ensure(p2.conn.send_data(to_span("hello p1")) == p2p::SendResult::Success);
+    coop_ensure(p2.conn.send_data(str_as_span("hello p1")) == p2p::SendResult::Success);
     coop_ensure(co_await event == 1);
     p1.conn.on_disconnected = [&event]() -> void {
         PRINT("p1 disconnected");

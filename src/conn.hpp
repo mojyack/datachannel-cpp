@@ -30,11 +30,11 @@ struct Connection {
 
     // callbacks
     // be careful that these callbacks are called from another thread
-    std::function<void(net::BytesRef)> on_received     = [](net::BytesRef) {};
-    std::function<void()>              on_disconnected = [] {};
+    std::function<void(BytesSpan)> on_received     = [](BytesSpan) {};
+    std::function<void()>          on_disconnected = [] {};
 
     auto push_signaling_data(PrependableBuffer buffer) -> coop::Async<bool>;
-    auto send_data(net::BytesRef data) -> SendResult;
+    auto send_data(BytesSpan data) -> SendResult;
 
     struct Params {
         std::span<juice_turn_server_t>     turns = {};

@@ -79,7 +79,7 @@ auto Connection::push_signaling_data(PrependableBuffer buffer) -> coop::Async<bo
     co_return true;
 }
 
-auto Connection::send_data(const net::BytesRef data) -> SendResult {
+auto Connection::send_data(const BytesSpan data) -> SendResult {
     switch(juice_send(agent.get(), (const char*)data.data(), data.size())) {
     case JUICE_ERR_SUCCESS:
         return SendResult::Success;
